@@ -129,22 +129,28 @@ def srtf_scheduling(processes, run_for):
 def round_robin_scheduling(processes, quantum, run_for):
     from collections import deque
 
-    queue = deque()
     current_time = 0
-    completed = 0
-    n = len(processes)
+    queue = deque()
     events = []
+    arrivals_logged = set()
 
     processes.sort(key=lambda x: x.arrival_time)
-    queue.append(processes[0])
-    current_idx = 1
+    next_process_idx = 0
+    n = len(processes)
+    completed = 0
 
-    while completed != n:
+    while current_time < run_for:
+        while next_process_idx < n and processes[next_process_idx].arrival_time <= current_time:
+            if processes[next_process_idx].arrival_time not in arrivals_logged:
+                events.append((current_time, f"{processes[next_process_idx].name} arrived"))
+                arrivals_logged.add(processes[next_process_idx].arrival_time)
+            queue.append(processes[next_process_idx])
+            next_process_idx += 1
+
         if not queue:
             events.append((current_time, "Idle"))
-            current_time = processes[current_idx].arrival_time
-            queue.append(processes[current_idx])
-            current_idx += 1
+            current_time += 1
+            continue
 
         process = queue.popleft()
 
@@ -153,16 +159,18 @@ def round_robin_scheduling(processes, quantum, run_for):
         if process.response_time == -1:
             process.response_time = current_time - process.arrival_time
 
-        if process.remaining_time == process.burst_time:
-            events.append((current_time, f"{process.name} selected (burst {process.remaining_time})"))
+        events.append((current_time, f"{process.name} selected (burst {process.remaining_time})"))
 
         exec_time = min(quantum, process.remaining_time)
         process.remaining_time -= exec_time
         current_time += exec_time
 
-        while current_idx < n and processes[current_idx].arrival_time <= current_time:
-            queue.append(processes[current_idx])
-            current_idx += 1
+        while next_process_idx < n and processes[next_process_idx].arrival_time <= current_time:
+            if processes[next_process_idx].arrival_time not in arrivals_logged:
+                events.append((current_time, f"{processes[next_process_idx].name} arrived"))
+                arrivals_logged.add(processes[next_process_idx].arrival_time)
+            queue.append(processes[next_process_idx])
+            next_process_idx += 1
 
         if process.remaining_time > 0:
             queue.append(process)
@@ -172,6 +180,9 @@ def round_robin_scheduling(processes, quantum, run_for):
             process.waiting_time = process.turnaround_time - process.burst_time
             events.append((current_time, f"{process.name} finished"))
             completed += 1
+
+        if completed == n:
+            break
 
     for idle_time in range(current_time, run_for):
         events.append((idle_time, "Idle"))
@@ -225,21 +236,25 @@ def main():
 
     with open(output_filename, "w") as f:
         f.write(f"{process_count} processes\n")
-        f.write(f"Using {algorithm.upper()}\n")
+        f.write(f"Using {algorithm.upper() if algorithm != 'rr' else 'Round-Robin'}\n")
         if algorithm == 'rr':
             f.write(f"Quantum {quantum}\n")
 
+        # Track arrivals
+        arrivals = {p.arrival_time: p.name for p in processes}
+        
         for time, event in events:
+            if time in arrivals and "arrived" not in event:
+                f.write(f"Time {time:4} : {arrivals[time]} arrived\n")
             f.write(f"Time {time:4} : {event}\n")
 
         for p in scheduled_processes:
-            f.write(f"{p.name} wait {p.waiting_time:4} turnaround {p.turnaround_time:4} response {p.response_time}\n")
-        
-        unfinished_processes = [p for p in scheduled_processes if p.completion_time > run_for]
-        for p in unfinished_processes:
-            f.write(f"{p.name} did not finish\n")
+            f.write(f"{p.name} wait {p.waiting_time:4} turnaround {p.turnaround_time:4} response {p.response_time:4}\n")
 
-    print(f"Output written to {output_filename}")
+        unfinished_processes = [p for p in processes if p.remaining_time > 0]
+        if unfinished_processes:
+            for p in unfinished_processes:
+                f.write(f"{p.name} did not finish\n")
 
 if __name__ == "__main__":
     main()
