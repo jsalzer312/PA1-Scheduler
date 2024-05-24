@@ -228,6 +228,8 @@ def main():
     with open(output_file, 'w') as file:
         for line in output_lines:
             file.write(line + '\n')
+    for line in output_lines:
+        print(line)
 
 if __name__ == '__main__':
     main()
