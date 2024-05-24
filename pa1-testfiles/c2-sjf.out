@@ -1,0 +1,9 @@
+  2 processes
+Using preemptive Shortest Job First
+Time   0 : P1 arrived
+Time   0 : P1 selected (burst   5)
+Time   5 : P1 finished
+Time   7 : P2 arrived
+Time   7 : P2 selected (burst   9)
+Time   16 : P2 finished
+Finished at time  20
