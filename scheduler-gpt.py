@@ -2,11 +2,11 @@
 # Christopher Bowerfind
 # James Salzer
 # Jonathan Connor
-
 import sys
 import os
 import tkinter as tk
 from tkinter import ttk
+from tkinter import scrolledtext
 from collections import deque
 
 class Process:
@@ -69,32 +69,53 @@ def fifo_scheduling(processes, run_for):
     current_time = 0
     events = []
     arrivals_logged = set()
+    ready_queue = []
+    
+    while current_time < run_for:
+        # Check for new arrivals and add them to the ready queue
+        for process in processes:
+            if process.arrival_time == current_time and process.pid not in arrivals_logged:
+                arrivals_logged.add(process.pid)
+                ready_queue.append(process)
+                events.append((current_time, f"{process.name} arrived"))
 
-    for process in processes:
-        if current_time < process.arrival_time:
-            for idle_time in range(current_time, process.arrival_time):
-                events.append((idle_time, "Idle"))
-            current_time = process.arrival_time
-
-        if process.arrival_time not in arrivals_logged:
-            events.append((process.arrival_time, f"{process.name} arrived"))
-            arrivals_logged.add(process.arrival_time)
-
-        events.append((current_time, f"{process.name} selected (burst {process.burst_time})"))
-        process.start_time = current_time
-        process.completion_time = current_time + process.burst_time
-        process.turnaround_time = process.completion_time - process.arrival_time
-        process.waiting_time = process.turnaround_time - process.burst_time
-        process.response_time = process.start_time - process.arrival_time
-        process.remaining_time = 0  # Process is completed
-        current_time += process.burst_time
-        events.append((current_time, f"{process.name} finished"))
-
-    for idle_time in range(current_time, run_for):
-        events.append((idle_time, "Idle"))
-
-    events.append((run_for, "Finished at time"))
+        # Process selection
+        if ready_queue:
+            process = ready_queue.pop(0)
+            events.append((current_time, f"{process.name} selected (burst {process.burst_time})"))
+            
+            process.start_time = current_time
+            process.completion_time = current_time + process.burst_time
+            process.turnaround_time = process.completion_time - process.arrival_time
+            process.waiting_time = process.turnaround_time - process.burst_time
+            process.response_time = process.start_time - process.arrival_time
+            process.remaining_time = 0  # Process is completed
+            
+            # Move current time forward to the end of the process burst time
+            end_time = current_time + process.burst_time
+            while current_time < end_time:
+                # Log arrivals that happen during the burst time
+                for proc in processes:
+                    if proc.arrival_time == current_time and proc.pid not in arrivals_logged:
+                        arrivals_logged.add(proc.pid)
+                        ready_queue.append(proc)
+                        events.append((current_time, f"{proc.name} arrived"))
+                
+                current_time += 1
+            
+            events.append((current_time, f"{process.name} finished"))
+        else:
+            # Handle idle time
+            events.append((current_time, "Idle"))
+            current_time += 1
+    
+    # Log the final event
+    events.append((run_for, f"Finished"))
+    
     return processes, events
+
+
+
 
 def srtf_scheduling(processes, run_for):
     current_time = 0
@@ -152,9 +173,11 @@ def srtf_scheduling(processes, run_for):
             current_time += 1
             last_selected_process = None
 
-    events.append((run_for, "Finished at time"))
-    return processes, events
+    for idle_time in range(current_time, run_for):
+        events.append((idle_time, "Idle"))
 
+    events.append((run_for, f"Finished"))
+    return processes, events
 
 def round_robin_scheduling(processes, quantum, run_for):
     current_time = 0
@@ -217,9 +240,8 @@ def round_robin_scheduling(processes, quantum, run_for):
     for idle_time in range(current_time, run_for):
         events.append((idle_time, "Idle"))
 
-    events.append((run_for, "Finished at time"))
+    events.append((run_for, f"Finished"))
     return processes, events
-
 
 def calculate_metrics(processes):
     for p in processes:
@@ -229,31 +251,42 @@ def calculate_metrics(processes):
             p.response_time = p.start_time - p.arrival_time
     return processes
 
-def display_results(processes, events):
+def display_results(processes, events, algorithm, quantum=None):
     root = tk.Tk()
     root.title("Scheduling Results")
 
     main_frame = ttk.Frame(root, padding="10")
     main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
-    time_frame = ttk.Frame(main_frame, padding="5")
-    time_frame.grid(row=0, column=0, sticky=(tk.W, tk.E))
+    summary_text = scrolledtext.ScrolledText(main_frame, wrap=tk.WORD, width=80, height=40)
+    summary_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
-    summary_frame = ttk.Frame(main_frame, padding="5")
-    summary_frame.grid(row=0, column=1, sticky=(tk.W, tk.E))
+    # Header information
+    summary_text.insert(tk.END, f"{len(processes)} processes\n")
+    if(algorithm == "rr"):
+        algorithm = "Round Robin"
+    if(algorithm=="fcfs"):
+        algorithm = "First-Come First-Served"
+    if(algorithm=="sjf"):
+        algorithm="Shortest Job First"
+
+    summary_text.insert(tk.END, f"Using {algorithm}\n")
+    if algorithm == 'Round Robin':
+        summary_text.insert(tk.END, f"Quantum {quantum}\n")
+        summary_text.insert(tk.END, "\n")
+    
 
     # Events
-    ttk.Label(time_frame, text="Events", font=("Helvetica", 16)).grid(row=0, column=0, sticky=tk.W)
-    for idx, (time, event) in enumerate(events):
-        ttk.Label(time_frame, text=f"Time {time:4} : {event}").grid(row=idx+1, column=0, sticky=tk.W)
+    for time, event in events:
+        summary_text.insert(tk.END, f"Time {time:4} : {event}\n")
 
+    summary_text.insert(tk.END, "\nMetrics\n")
     # Metrics
-    ttk.Label(summary_frame, text="Metrics", font=("Helvetica", 16)).grid(row=0, column=0, sticky=tk.W)
-    for idx, process in enumerate(processes):
-        ttk.Label(summary_frame, text=f"{process.name} wait {process.waiting_time:4} turnaround {process.turnaround_time:4} response {process.response_time:4}").grid(row=idx+1, column=0, sticky=tk.W)
+    for process in sorted(processes, key=lambda x: x.pid):
+        summary_text.insert(tk.END, f"{process.name} wait {process.waiting_time:4} turnaround {process.turnaround_time:4} response {process.response_time:4}\n")
 
     root.mainloop()
-    
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: scheduler-get.py <input file>")
@@ -286,7 +319,7 @@ def main():
 
     scheduled_processes = calculate_metrics(scheduled_processes)
 
-    display_results(scheduled_processes, events)
+    display_results(scheduled_processes, events, algorithm, quantum)
 
 if __name__ == "__main__":
     main()
